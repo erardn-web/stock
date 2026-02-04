@@ -1,123 +1,96 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 
-# Configuration de la page
+# Configuration
 st.set_page_config(page_title="GéoStock Ergo", layout="wide")
 
-st.title("📦 Gestion de Matériel Ergothérapie")
+# --- CONFIGURATION DE L'URL ---
+# ID de votre sheet extrait de votre lien
+SHEET_ID = "11P3mxax78oqjQs_J6nHTM0th-_LlnPf7A_c9rJjkKE8"
+# GID 0 est généralement la première feuille (stock)
+URL_STOCK = f"https://docs.google.com{SHEET_ID}/export?format=csv&gid=0"
+# Pour l'historique, on essaiera de lire la feuille nommée 'historique'
+URL_HIST = f"https://docs.google.com{SHEET_ID}/export?format=csv&sheet=historique"
 
-# 1. Connexion au Google Sheet
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-# Fonction pour charger les données sans cache pour voir les modifs en temps réel
 def load_data():
     try:
-        stock = conn.read(worksheet="stock", ttl=0)
-        hist = conn.read(worksheet="historique", ttl=0)
-        # Nettoyage des colonnes au cas où
-        stock = stock.dropna(how='all')
-        hist = hist.dropna(how='all')
+        # Lecture directe du CSV public via Pandas
+        stock = pd.read_csv(URL_STOCK)
+        try:
+            hist = pd.read_csv(URL_HIST)
+        except:
+            hist = pd.DataFrame(columns=["id_materiel", "date", "action", "notes"])
+        
+        # Nettoyage des données vides
+        stock = stock.dropna(subset=['nom']) if 'nom' in stock.columns else stock
         return stock, hist
     except Exception as e:
-        st.error("Erreur de lecture du Google Sheet. Vérifiez les noms d'onglets 'stock' et 'historique'.")
+        st.error(f"Erreur de connexion au Google Sheet : {e}")
         return pd.DataFrame(), pd.DataFrame()
 
 df_stock, df_hist = load_data()
 
-tab1, tab2, tab3 = st.tabs(["📋 Inventaire & Actions", "➕ Ajouter Matériel", "📜 Historique Complet"])
+st.title("📦 Gestion de Stock Ergothérapie")
+
+tab1, tab2, tab3 = st.tabs(["📋 Inventaire & Actions", "➕ Ajouter Matériel", "📜 Historique"])
 
 # --- TAB 1 : INVENTAIRE & ACTIONS ---
 with tab1:
-    st.header("État du stock")
+    st.header("Matériel en stock")
     if not df_stock.empty:
-        # On affiche le stock avec un sélecteur pour agir sur un objet
-        selected_item_name = st.selectbox("Sélectionner un objet pour changer son statut :", 
-                                        ["---"] + df_stock["nom"].tolist())
-        
-        if selected_item_name != "---":
-            item_data = df_stock[df_stock["nom"] == selected_item_name].iloc[0]
-            st.info(f"Statut actuel : **{item_data['statut']}** | Origine : {item_data['provenance']}")
-            
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                if st.button("🤝 Prêter"):
-                    new_status, action = "Prêté", "Prêt"
-            with col2:
-                if st.button("🔄 Retourner"):
-                    new_status, action = "Disponible", "Retour"
-            with col3:
-                if st.button("💰 Vendre"):
-                    new_status, action = "Vendu", "Vente"
-            with col4:
-                if st.button("🗑️ Jeter"):
-                    new_status, action = "Jeté", "Mise au rebut"
-
-            # Logique de mise à jour si un bouton est cliqué
-            if 'new_status' in locals():
-                # Mise à jour du stock
-                df_stock.loc[df_stock["nom"] == selected_item_name, "statut"] = new_status
-                
-                # Ajout à l'historique
-                new_h = pd.DataFrame([{
-                    "id_materiel": item_data["id"],
-                    "date": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                    "action": action,
-                    "notes": f"Passage au statut {new_status}"
-                }])
-                df_hist = pd.concat([df_hist, new_h], ignore_index=True)
-                
-                # Sauvegarde
-                conn.update(worksheet="stock", data=df_stock)
-                conn.update(worksheet="historique", data=df_hist)
-                st.success(f"Statut mis à jour : {new_status}")
-                st.rerun()
-
-        st.divider()
+        # Affichage du tableau
         st.dataframe(df_stock, use_container_width=True, hide_index=True)
+        
+        st.divider()
+        st.subheader("Modifier un statut")
+        
+        # Sélection pour action
+        selected_name = st.selectbox("Choisir un objet :", ["---"] + df_stock["nom"].tolist())
+        
+        if selected_name != "---":
+            idx = df_stock[df_stock["nom"] == selected_name].index[0]
+            current_status = df_stock.at[idx, 'statut']
+            
+            st.write(f"Statut actuel : **{current_status}**")
+            
+            c1, c2, c3, c4 = st.columns(4)
+            new_status = None
+            
+            with c1: 
+                if st.button("🤝 Prêter"): new_status, action = "Prêté", "Prêt"
+            with c2: 
+                if st.button("🔄 Retour"): new_status, action = "Disponible", "Retour"
+            with c3: 
+                if st.button("💰 Vendre"): new_status, action = "Vendu", "Vente"
+            with c4: 
+                if st.button("🗑️ Jeter"): new_status, action = "Jeté", "Rebut"
+            
+            if new_status:
+                st.warning("⚠️ Note : Pour sauvegarder cette modification, ouvrez votre Google Sheet et changez le statut manuellement (La version gratuite 'lecture seule' ne permet pas l'écriture directe sans configuration complexe).")
     else:
-        st.info("L'inventaire est vide.")
+        st.info("Aucune donnée trouvée. Vérifiez que la première ligne du Google Sheet contient : id, nom, provenance, options, statut")
 
 # --- TAB 2 : AJOUTER DU MATÉRIEL ---
 with tab2:
-    st.header("Nouvel objet")
-    with st.form("ajout_objet"):
-        nom = st.text_input("Nom de l'objet (ex: Déambulateur Rollator)")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            prov = st.selectbox("Mode d'obtention", ["Achat", "Prêt fournisseur", "Don"])
-        with col_b:
-            options = st.multiselect("Options possibles", ["Prêtable", "Louable", "Achetable"])
-        
-        submit = st.form_submit_button("Enregistrer")
-        
-        if submit and nom:
-            new_id = int(df_stock["id"].max() + 1) if not df_stock.empty else 1
-            new_item = pd.DataFrame([{
-                "id": new_id, "nom": nom, "provenance": prov, 
-                "options": ", ".join(options), "statut": "Disponible"
-            }])
-            new_h = pd.DataFrame([{
-                "id_materiel": new_id, "date": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                "action": "Création", "notes": f"Entrée initiale ({prov})"
-            }])
-            
-            df_stock = pd.concat([df_stock, new_item], ignore_index=True)
-            df_hist = pd.concat([df_hist, new_h], ignore_index=True)
-            
-            conn.update(worksheet="stock", data=df_stock)
-            conn.update(worksheet="historique", data=df_hist)
-            st.success("Objet ajouté !")
-            st.rerun()
+    st.header("Ajouter un nouvel élément")
+    st.write("Pour ajouter un élément, remplissez une nouvelle ligne dans votre [Google Sheet](https://docs.google.com11P3mxax78oqjQs_J6nHTM0th-_LlnPf7A_c9rJjkKE8/edit)")
+    
+    with st.expander("Voir l'aide au remplissage"):
+        st.markdown("""
+        1. Allez sur le Google Sheet.
+        2. Ajoutez une ligne avec :
+           - **id** : Le numéro suivant.
+           - **nom** : Nom de l'objet.
+           - **provenance** : Achat, Don, ou Prêt fournisseur.
+           - **options** : Louable, Prêtable, etc.
+           - **statut** : Disponible.
+        """)
 
 # --- TAB 3 : HISTORIQUE ---
 with tab3:
-    st.header("Historique des mouvements")
+    st.header("Historique")
     if not df_hist.empty:
-        # On fusionne avec le stock pour avoir le nom de l'objet au lieu de l'ID
-        df_display = df_hist.merge(df_stock[['id', 'nom']], left_on='id_materiel', right_on='id', how='left')
-        st.dataframe(df_display[['date', 'nom', 'action', 'notes']].sort_index(ascending=False), use_container_width=True)
+        st.table(df_hist)
     else:
-        st.write("Aucun historique disponible.")
+        st.info("L'historique est géré dans l'onglet 'historique' de votre Google Sheet.")
