@@ -3,48 +3,56 @@ import pandas as pd
 
 st.set_page_config(page_title="Stock Ergo", layout="wide")
 
-# TON LIEN PROPRE
-URL_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvC-HgeDZwRhEb8qyzQbESVYO_Ww8cPVE7FxXskXHIURIi0V7vZkmmDxghJVp669WCVZy8fmV1nMD9/pub?gid=1192360349&single=true&output=csv"
+# URL DE PUBLICATION CSV
+URL_CSV = "https://docs.google.com"
 
 @st.cache_data(ttl=5)
 def load_data():
     try:
-        # Lecture du CSV
         df = pd.read_csv(URL_CSV)
-        # On supprime les lignes totalement vides
-        df = df.dropna(how='all')
-        return df
-    except Exception as e:
-        st.error(f"Erreur technique : {e}")
+        return df.dropna(how='all')
+    except:
         return pd.DataFrame()
 
+# --- INTERFACE ---
 st.title("📦 Gestion de Stock Ergothérapie")
 
-# Bouton de rafraîchissement
-if st.button("🔄 Actualiser"):
-    st.cache_data.clear()
-    st.rerun()
+# Barre d'actions en haut
+col_search, col_add = st.columns([3, 1])
 
+with col_add:
+    # Bouton principal pour ajouter
+    st.link_button("➕ Ajouter un article", 
+                   "https://docs.google.com",
+                   type="primary",
+                   use_container_width=True)
+
+with col_search:
+    search = st.text_input("🔍 Rechercher un matériel (nom, provenance, statut...)", placeholder="Ex: Déambulateur")
+
+# Chargement des données
 df_stock = load_data()
 
-# Vérification si les données sont bien arrivées
 if not df_stock.empty:
-    # On affiche le nombre de lignes (en excluant les lignes de code si jamais)
-    st.success(f"✅ {len(df_stock)} article(s) trouvé(s)")
-    
-    # Recherche
-    search = st.text_input("🔍 Rechercher un matériel...")
+    # Filtrage si recherche
     if search:
         mask = df_stock.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)
         df_display = df_stock[mask]
     else:
         df_display = df_stock
 
-    # Affichage du tableau final
+    # Affichage des statistiques
+    st.write(f"**{len(df_display)}** article(s) correspondant(s)")
+    
+    # Tableau
     st.dataframe(df_display, use_container_width=True, hide_index=True)
+    
+    # Bouton de rafraîchissement discret
+    if st.button("🔄 Actualiser la liste"):
+        st.cache_data.clear()
+        st.rerun()
 else:
-    st.warning("⚠️ Aucune donnée trouvée.")
-    st.info("Vérifiez que votre ligne 1 dans Google Sheets contient bien les titres.")
+    st.warning("⚠️ Aucune donnée trouvée. Vérifiez que votre Google Sheet n'est pas vide.")
 
 st.divider()
-st.link_button("➕ Modifier les données sur Google Sheets", "https://docs.google.com")
+st.caption("Application de gestion légère - 2026")
