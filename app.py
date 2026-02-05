@@ -1,50 +1,89 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+from datetime import datetime
 
-st.set_page_config(page_title="Stock Ergo", layout="wide")
+st.set_page_config(page_title="Stock Ergo Pro", layout="wide")
 
-# TON LIEN PROPRE
-URL_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvC-HgeDZwRhEb8qyzQbESVYO_Ww8cPVE7FxXskXHIURIi0V7vZkmmDxghJVp669WCVZy8fmV1nMD9/pub?gid=1192360349&single=true&output=csv"
+# 1. Connexion sécurisée via les Secrets TOML
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-@st.cache_data(ttl=5)
+# Fonction pour charger les données sans cache pour l'écriture
 def load_data():
-    try:
-        # Lecture du CSV
-        df = pd.read_csv(URL_CSV)
-        # On supprime les lignes totalement vides
-        df = df.dropna(how='all')
-        return df
-    except Exception as e:
-        st.error(f"Erreur technique : {e}")
-        return pd.DataFrame()
-
-st.title("📦 Gestion de Stock Ergothérapie")
-
-# Bouton de rafraîchissement
-if st.button("🔄 Actualiser"):
-    st.cache_data.clear()
-    st.rerun()
+    stock = conn.read(worksheet="stock", ttl=0)
+    # On s'assure que l'ID est bien un nombre
+    stock['id'] = pd.to_numeric(stock['id'], errors='coerce')
+    return stock.dropna(how='all')
 
 df_stock = load_data()
 
-# Vérification si les données sont bien arrivées
-if not df_stock.empty:
-    # On affiche le nombre de lignes (en excluant les lignes de code si jamais)
-    st.success(f"✅ {len(df_stock)} article(s) trouvé(s)")
-    
-    # Recherche
-    search = st.text_input("🔍 Rechercher un matériel...")
-    if search:
-        mask = df_stock.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)
-        df_display = df_stock[mask]
-    else:
-        df_display = df_stock
+st.title("📦 Gestion de Stock Ergothérapie")
 
-    # Affichage du tableau final
-    st.dataframe(df_display, use_container_width=True, hide_index=True)
-else:
-    st.warning("⚠️ Aucune donnée trouvée.")
-    st.info("Vérifiez que votre ligne 1 dans Google Sheets contient bien les titres.")
+tab1, tab2 = st.tabs(["📋 Inventaire & Actions", "➕ Ajouter un article"])
+
+# --- TAB 1 : INVENTAIRE & ACTIONS ---
+with tab1:
+    if not df_stock.empty:
+        # Barre de recherche
+        search = st.text_input("🔍 Rechercher un matériel...")
+        df_display = df_stock
+        if search:
+            df_display = df_stock[df_stock.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)]
+        
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+        st.divider()
+        st.subheader("⚙️ Modifier le statut d'un objet")
+        
+        # Formulaire de modification rapide
+        with st.form("update_status"):
+            item_to_update = st.selectbox("Choisir l'objet à modifier", df_stock["nom"].tolist())
+            nouveau_statut = st.selectbox("Nouveau statut", ["Disponible", "Prêté", "Loué", "Vendu", "Jeté"])
+            note_action = st.text_input("Note (ex: Prêté à Mme Martin)")
+            
+            if st.form_submit_button("Mettre à jour le statut"):
+                # Mise à jour dans le DataFrame
+                df_stock.loc[df_stock["nom"] == item_to_update, "statut"] = nouveau_statut
+                
+                # Sauvegarde directe dans Google Sheets
+                conn.update(worksheet="stock", data=df_stock)
+                st.success(f"✅ Statut de '{item_to_update}' mis à jour !")
+                st.rerun()
+    else:
+        st.info("Le stock est vide.")
+
+# --- TAB 2 : AJOUTER DU MATÉRIEL ---
+with tab2:
+    st.header("Nouvel enregistrement")
+    with st.form("add_item"):
+        nom = st.text_input("Nom de l'objet")
+        prov = st.selectbox("Provenance", ["Achat", "Prêt fournisseur", "Don", "Autre"])
+        opts = st.multiselect("Options", ["Prêtable", "Louable", "Achetable"])
+        
+        if st.form_submit_button("Enregistrer dans le Google Sheet"):
+            if nom:
+                # Calcul du prochain ID
+                next_id = int(df_stock["id"].max() + 1) if not df_stock.empty else 1
+                
+                # Création de la nouvelle ligne
+                new_row = pd.DataFrame([{
+                    "id": next_id,
+                    "nom": nom,
+                    "provenance": prov,
+                    "options": ", ".join(opts),
+                    "statut": "Disponible"
+                }])
+                
+                # Fusion et envoi
+                df_updated = pd.concat([df_stock, new_row], ignore_index=True)
+                conn.update(worksheet="stock", data=df_updated)
+                
+                st.success(f"✨ '{nom}' ajouté avec succès !")
+                st.rerun()
+            else:
+                st.error("Veuillez entrer un nom d'objet.")
 
 st.divider()
-st.link_button("➕ Modifier les données sur Google Sheets", "https://docs.google.com")
+if st.button("🔄 Forcer la synchronisation"):
+    st.cache_data.clear()
+    st.rerun()
