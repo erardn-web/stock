@@ -5,33 +5,41 @@ import io
 
 st.set_page_config(page_title="Stock Ergo", layout="wide")
 
-@st.cache_data(ttl=60)
-def load_data():
-    sid = "11P3mxax78oqjQs_J6nHTM0th-_LlnPf7A_c9rJjkKE8"
-    gid = "1192360349"
-    # URL simplifiée
-    url = f"https://docs.google.com{sid}/export?format=csv&gid={gid}"
+@st.cache_data(ttl=30)
+def load_public_data():
+    # Ton URL de publication convertie en format CSV
+    url = "https://docs.google.com"
     
-    # Tentative de téléchargement via requests au lieu de pandas
-    response = requests.get(url, timeout=10)
-    response.raise_for_status() # Erreur si Google ne répond pas
-    
-    # Conversion du texte reçu en tableau
-    return pd.read_csv(io.StringIO(response.text))
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        # On lit le texte reçu
+        df = pd.read_csv(io.StringIO(r.text))
+        return df
+    except Exception as e:
+        st.error(f"Erreur de flux : {e}")
+        return pd.DataFrame()
 
 st.title("📦 Gestion de Stock Ergothérapie")
 
-try:
-    df_stock = load_data()
-    st.success("✅ Connexion établie !")
-    st.dataframe(df_stock, use_container_width=True, hide_index=True)
+df_stock = load_public_data()
 
-except Exception as e:
-    st.error("⚠️ Blocage réseau détecté.")
-    st.write("Détail technique pour le support :", e)
+if not df_stock.empty:
+    st.success("✅ Données synchronisées")
     
-    # Bouton de secours si le Cloud Streamlit est en panne de DNS
-    st.info("💡 Si l'erreur persiste, essayez de supprimer et recréer l'app dans une autre zone (Advanced Settings > Western Europe).")
+    # Recherche simple
+    search = st.text_input("🔍 Rechercher un matériel...")
+    if search:
+        mask = df_stock.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)
+        df_display = df_stock[mask]
+    else:
+        df_display = df_stock
+        
+    st.dataframe(df_display, use_container_width=True, hide_index=True)
+else:
+    st.warning("⚠️ En attente des données...")
+    st.info("Vérifiez que le Google Sheet contient des données et qu'il est bien publié.")
 
 st.divider()
-st.link_button("➕ Modifier sur Google Sheets", "https://docs.google.com11P3mxax78oqjQs_J6nHTM0th-_LlnPf7A_c9rJjkKE8/edit")
+# Lien pour aller modifier le contenu
+st.link_button("➕ Modifier sur Google Sheets", "https://docs.google.com")
