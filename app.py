@@ -1,21 +1,30 @@
 import streamlit as st
 import pandas as pd
+import io
+import requests
 
 st.set_page_config(page_title="Stock Ergo", layout="wide")
 
-# TON LIEN PROPRE (Vérifié et fonctionnel)
+# URL DE PUBLICATION (On s'assure qu'elle demande du CSV)
 URL_CSV = "https://docs.google.com"
 
 @st.cache_data(ttl=5)
 def load_data():
     try:
-        # Lecture du CSV
-        df = pd.read_csv(URL_CSV)
-        # On supprime les lignes totalement vides
-        df = df.dropna(how='all')
-        return df
+        # On télécharge d'abord le texte brut
+        response = requests.get(URL_CSV, timeout=10)
+        # On lit le texte ligne par ligne pour filtrer le code Google
+        lignes_propres = []
+        for line in response.text.splitlines():
+            # Une ligne de stock ne contient pas de balises HTML ou CSS
+            if "<" not in line and "{" not in line and "var(" not in line:
+                lignes_propres.append(line)
+        
+        # On convertit les lignes filtrées en tableau
+        csv_data = "\n".join(lignes_propres)
+        df = pd.read_csv(io.StringIO(csv_data), on_bad_lines='skip')
+        return df.dropna(how='all')
     except Exception as e:
-        st.error(f"Erreur technique : {e}")
         return pd.DataFrame()
 
 st.title("📦 Gestion de Stock Ergothérapie")
@@ -27,8 +36,7 @@ if st.button("🔄 Actualiser"):
 
 df_stock = load_data()
 
-# Vérification si les données sont bien arrivées
-if not df_stock.empty:
+if not df_stock.empty and len(df_stock.columns) > 1:
     st.success(f"✅ {len(df_stock)} article(s) trouvé(s)")
     
     # Recherche
@@ -39,11 +47,10 @@ if not df_stock.empty:
     else:
         df_display = df_stock
 
-    # Affichage du tableau final
     st.dataframe(df_display, use_container_width=True, hide_index=True)
 else:
-    st.warning("⚠️ Aucune donnée trouvée.")
-    st.info("Vérifiez que votre ligne 1 dans Google Sheets contient bien les titres.")
+    st.warning("⚠️ Les données sont en cours de synchronisation...")
+    st.info("Vérifiez sur Google Sheets : Fichier > Partager > Publier sur le web. Cliquez sur 'Arrêter la publication' puis 'Publier' à nouveau en choisissant bien 'Valeurs séparées par des virgules (.csv)'.")
 
 st.divider()
 st.link_button("➕ Ajouter / Modifier sur Google Sheets", "https://docs.google.com")
