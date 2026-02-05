@@ -1,47 +1,58 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-from datetime import datetime
 
 st.set_page_config(page_title="GéoStock Ergo", layout="wide")
 
-# Connexion
-conn = st.connection("gsheets", type=GSheetsConnection)
+# ID de ton sheet
+SHEET_ID = "11P3mxax78oqjQs_J6nHTM0th-_LlnPf7A_c9rJjkKE8"
+# URL d'export CSV (Fonctionne si le partage est "Tous les utilisateurs disposant du lien")
+URL_STOCK = f"https://docs.google.com{SHEET_ID}/export?format=csv&gid=0"
 
 def load_data():
-    # On lit les feuilles. Si erreur, on crée des tableaux vides.
     try:
-        stock = conn.read(worksheet="stock", ttl=0)
-        hist = conn.read(worksheet="historique", ttl=0)
-        return stock.dropna(how='all'), hist.dropna(how='all')
-    except:
-        return pd.DataFrame(columns=["id", "nom", "provenance", "options", "statut"]), pd.DataFrame(columns=["id_materiel", "date", "action", "notes"])
+        # Lecture directe sans connecteur complexe
+        df = pd.read_csv(URL_STOCK)
+        return df
+    except Exception as e:
+        st.error(f"Erreur de lecture : {e}")
+        return pd.DataFrame()
 
-df_stock, df_hist = load_data()
+df_stock = load_data()
 
 st.title("📦 Gestion de Stock Ergothérapie")
 
-tab1, tab2, tab3 = st.tabs(["📋 Inventaire", "➕ Ajouter", "📜 Historique"])
+tab1, tab2 = st.tabs(["📋 Inventaire & Historique", "➕ Ajouter du matériel"])
 
 with tab1:
     if not df_stock.empty:
-        st.dataframe(df_stock, use_container_width=True, hide_index=True)
+        st.subheader("Articles en stock")
+        # Recherche simple
+        search = st.text_input("🔍 Rechercher un matériel...")
+        if search:
+            display_df = df_stock[df_stock['nom'].str.contains(search, case=False, na=False)]
+        else:
+            display_df = df_stock
+            
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
     else:
-        st.info("Le stock est vide ou l'onglet 'stock' n'est pas trouvé.")
+        st.warning("Le stock semble vide ou le fichier est inaccessible.")
 
 with tab2:
-    with st.form("add_form"):
-        nom = st.text_input("Nom du matériel")
-        prov = st.selectbox("Provenance", ["Achat", "Prêt fournisseur", "Don"])
-        opts = st.multiselect("Options", ["Prêtable", "Louable", "Achetable"])
-        if st.form_submit_button("Enregistrer"):
-            new_id = int(df_stock["id"].max() + 1) if not df_stock.empty else 1
-            new_line = pd.DataFrame([{"id": new_id, "nom": nom, "provenance": prov, "options": ", ".join(opts), "statut": "Disponible"}])
-            df_stock = pd.concat([df_stock, new_line], ignore_index=True)
-            # Sauvegarde
-            conn.update(worksheet="stock", data=df_stock)
-            st.success("Matériel ajouté ! Actualisez la page.")
-            st.rerun()
+    st.header("Ajouter un nouvel élément")
+    st.info("Pour garantir la sécurité de vos données, l'ajout se fait directement dans le tableau sécurisé.")
+    
+    # Bouton qui ouvre ton Google Sheet directement au bon endroit
+    st.link_button("👉 Ouvrir le Google Sheet pour ajouter / modifier", 
+                   f"https://docs.google.com{SHEET_ID}/edit")
+    
+    st.markdown("""
+    **Instructions :**
+    1. Clique sur le bouton ci-dessus.
+    2. Ajoute ta ligne dans l'onglet **stock**.
+    3. Reviens ici et rafraîchis la page (Touche R) pour voir le changement.
+    """)
 
-with tab3:
-    st.dataframe(df_hist, use_container_width=True)
+# Affichage de l'historique (si l'onglet existe)
+st.divider()
+if st.button("🔄 Rafraîchir les données"):
+    st.rerun()
