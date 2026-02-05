@@ -5,46 +5,42 @@ import io
 
 st.set_page_config(page_title="Stock Ergo", layout="wide")
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=5)
 def load_public_data():
-    # URL de publication CSV
+    # URL de publication CSV (Attention au format à la fin)
     url = "https://docs.google.com"
     
     try:
         r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        
-        # On lit le CSV en ignorant les lignes qui ont trop de colonnes (on_bad_lines)
-        df = pd.read_csv(io.StringIO(r.text), on_bad_lines='skip', sep=',')
-        
-        # On ne garde que les lignes où la colonne 'nom' n'est pas vide
-        if 'nom' in df.columns:
-            df = df.dropna(subset=['nom'])
+        # On ne garde que les données si le serveur répond OK
+        if r.status_code == 200:
+            # On lit le texte reçu
+            df = pd.read_csv(io.StringIO(r.text), on_bad_lines='skip')
             
-        return df
+            # NETTOYAGE CRUCIAL :
+            # On ne garde que les lignes où la première colonne est un chiffre (ID) 
+            # ou dont le nom n'est pas du code bizarre (pas de { ou <)
+            if not df.empty:
+                # On filtre pour ne garder que les lignes "propres"
+                df = df[df.iloc[:, 0].astype(str).str.len() < 50] # Supprime les lignes trop longues (code)
+                df = df[~df.iloc[:, 0].astype(str).str.contains("<|{|#", na=False)] # Supprime le HTML/CSS
+            
+            return df
+        return pd.DataFrame()
     except Exception as e:
-        st.error(f"Erreur d'analyse des données : {e}")
         return pd.DataFrame()
 
 st.title("📦 Gestion de Stock Ergothérapie")
 
 df_stock = load_public_data()
 
-if not df_stock.empty:
-    st.success(f"✅ {len(df_stock)} articles trouvés")
-    
-    # Recherche
-    search = st.text_input("🔍 Rechercher un matériel...")
-    if search:
-        mask = df_stock.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)
-        df_display = df_stock[mask]
-    else:
-        df_display = df_stock
-        
-    st.dataframe(df_display, use_container_width=True, hide_index=True)
+# Affichage des statistiques réelles
+if not df_stock.empty and len(df_stock.columns) > 1:
+    st.success(f"✅ {len(df_stock)} article(s) trouvé(s)")
+    st.dataframe(df_stock, use_container_width=True, hide_index=True)
 else:
-    st.warning("⚠️ Les données sont mal formatées ou le tableau est vide.")
-    st.info("Conseil : Assurez-vous que la première ligne du Google Sheet contient vos titres (id, nom, provenance, etc.) sans lignes vides au-dessus.")
+    st.warning("⚠️ En attente de données valides...")
+    st.info("Allez dans Google Sheets > Fichier > Partager > Publier sur le Web. Vérifiez que vous avez publié 'Toute la feuille' au format 'Valeurs séparées par des virgules (.csv)'.")
 
 st.divider()
 st.link_button("➕ Modifier sur Google Sheets", "https://docs.google.com")
