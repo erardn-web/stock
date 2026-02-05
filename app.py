@@ -1,41 +1,37 @@
 import streamlit as st
 import pandas as pd
+import requests
+import io
 
 st.set_page_config(page_title="Stock Ergo", layout="wide")
 
-# Methode ultra-directe pour éviter l'erreur de nom de service
 @st.cache_data(ttl=60)
 def load_data():
-    # Ton ID de document sans aucun autre caractère
     sid = "11P3mxax78oqjQs_J6nHTM0th-_LlnPf7A_c9rJjkKE8"
     gid = "1192360349"
-    full_url = f"https://docs.google.com{sid}/export?format=csv&gid={gid}"
+    # URL simplifiée
+    url = f"https://docs.google.com{sid}/export?format=csv&gid={gid}"
     
-    return pd.read_csv(full_url)
+    # Tentative de téléchargement via requests au lieu de pandas
+    response = requests.get(url, timeout=10)
+    response.raise_for_status() # Erreur si Google ne répond pas
+    
+    # Conversion du texte reçu en tableau
+    return pd.read_csv(io.StringIO(response.text))
 
 st.title("📦 Gestion de Stock Ergothérapie")
 
 try:
     df_stock = load_data()
-    
-    if not df_stock.empty:
-        # Recherche
-        search = st.text_input("🔍 Rechercher un matériel...")
-        if search:
-            mask = df_stock.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)
-            df_display = df_stock[mask]
-        else:
-            df_display = df_stock
-            
-        st.dataframe(df_display, use_container_width=True, hide_index=True)
-    else:
-        st.warning("Le fichier est vide.")
+    st.success("✅ Connexion établie !")
+    st.dataframe(df_stock, use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error("⚠️ Problème de connexion au Google Sheet.")
-    st.info("Tentative de diagnostic : vérifiez que le partage est bien 'Tous les utilisateurs disposant du lien'.")
-    # Affiche l'erreur technique pour nous aider si ça rate encore
-    st.expander("Détails techniques").write(e)
+    st.error("⚠️ Blocage réseau détecté.")
+    st.write("Détail technique pour le support :", e)
+    
+    # Bouton de secours si le Cloud Streamlit est en panne de DNS
+    st.info("💡 Si l'erreur persiste, essayez de supprimer et recréer l'app dans une autre zone (Advanced Settings > Western Europe).")
 
 st.divider()
 st.link_button("➕ Modifier sur Google Sheets", "https://docs.google.com11P3mxax78oqjQs_J6nHTM0th-_LlnPf7A_c9rJjkKE8/edit")
